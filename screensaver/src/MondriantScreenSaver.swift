@@ -19,13 +19,14 @@ class MondriantScreenSaverView : ScreenSaverView {
     var texLoc: GLint = 0
     var imageIndex: Int = 0
     
-    var settings: AntSettings = AntSettings()
+    var base_settings: AntSettings = AntSettings()
+    var rand_settings: AntSettings = AntSettings()
     var variances: AntVariances = AntVariances()
     var pixels: [PixelData]! = nil
     var ants: [Ant] = [Ant]()
     
-    var simulationFinished: Bool = false
-    var simulationFinishedTime: NSDate! = nil
+    var finished: Bool = false
+    var finishedTime: NSDate! = nil
     var time: Float = 0.0
     
     @IBOutlet weak var configPanel: NSPanel! = nil
@@ -76,10 +77,10 @@ class MondriantScreenSaverView : ScreenSaverView {
         view.openGLContext.makeCurrentContext()
         glEnable(GLenum(GL_BLEND))
         glBlendFunc(GLenum(GL_SRC_ALPHA), GLenum(GL_ONE_MINUS_SRC_ALPHA))
-        glClearColor(Float(Ant.s.bg_color.r)/255.0,
-                     Float(Ant.s.bg_color.g)/255.0,
-                     Float(Ant.s.bg_color.b)/255.0,
-                     Float(Ant.s.bg_color.a)/255.0)
+        glClearColor(Float(base_settings.bg_color.r) / 255.0,
+                     Float(base_settings.bg_color.g) / 255.0,
+                     Float(base_settings.bg_color.b) / 255.0,
+                     Float(base_settings.bg_color.a) / 255.0)
         check_gl_error()
         // VBO
         glGenBuffers(1, &vbo)
@@ -153,22 +154,28 @@ class MondriantScreenSaverView : ScreenSaverView {
             time = 0
             let w = Int(frame.width)
             let h = Int(frame.height)
-            settings.w = w
-            settings.h = h
-            Ant.s.copyAssignment(settings)
-            pixels = [PixelData](count: w*h, repeatedValue: Ant.s.bg_color)
-            ants = [Ant(x: w/2, y: h/2, dx: 0, dy: -1, time: time)]
+            base_settings.w = w
+            base_settings.h = h
+            rand_settings.copyAssignment(base_settings)
+            pixels = [PixelData](count: w*h,
+                                 repeatedValue: base_settings.bg_color)
+            ants = [Ant(x: w / 2,
+                        y: h / 2,
+                        dx:  0,
+                        dy: -1,
+                        time: time,
+                        s: rand_settings)]
             initOpenGL(w:w, h:h)
             openGLInitialized = true
-            simulationFinished = false
+            finished = false
             srand48(Int(arc4random()))
         }
         
         // update image
         assert(pixels != nil)
-        for i in 1...Ant.s.speed {
+        for i in 1...rand_settings.speed {
             // simulation step
-            if (!simulationFinished) {
+            if (!finished) {
                 var ant_index = 0
                 var ant_count = ants.count
                 while (ant_index < ant_count) {
@@ -187,27 +194,32 @@ class MondriantScreenSaverView : ScreenSaverView {
             }
             time += 1.0
             // check if simulation is finished
-            if (ants.count == 0 && !simulationFinished) {
+            if (ants.count == 0 && !finished) {
                 time = 0.0
-                simulationFinished = true
-                simulationFinishedTime = NSDate()
+                finished = true
+                finishedTime = NSDate()
                 outputPng(imageIndex % 10)
                 imageIndex += 1
             }
             // check if finished and end pause time over
-            if (ants.count == 0 && simulationFinished) {
-                let time_since_end = -simulationFinishedTime.timeIntervalSinceNow
-                if (time_since_end > Double(settings.end_pause_time)) {
+            if (ants.count == 0 && finished) {
+                let time_since_end = -finishedTime.timeIntervalSinceNow
+                if (time_since_end > Double(rand_settings.end_pause_time)) {
                     // reset simulation
                     time = 0.0
-                    let w = settings.w
-                    let h = settings.h
+                    let w = rand_settings.w
+                    let h = rand_settings.h
                     for i in 0..<(w*h) {
-                        pixels[i] = settings.bg_color
+                        pixels[i] = rand_settings.bg_color
                     }
                     randomizeAntSettings()
-                    ants.append(Ant(x: w/2, y: h/2, dx: 0, dy: -1, time: time))
-                    simulationFinished = false
+                    ants.append(Ant(x: w / 2,
+                                    y: h / 2,
+                                    dx:  0,
+                                    dy: -1,
+                                    time: time,
+                                    s: rand_settings))
+                    finished = false
                     break;
                 }
             }
@@ -216,9 +228,9 @@ class MondriantScreenSaverView : ScreenSaverView {
         // draw image
         view.openGLContext.makeCurrentContext()
         glClear(GLbitfield(GL_COLOR_BUFFER_BIT))
-        glTexSubImage2D(GLenum(GL_TEXTURE_2D), 0, 0, 0, GLsizei(settings.w),
-                        GLsizei(settings.h), GLenum(GL_RGBA),
-                        GLenum(GL_UNSIGNED_BYTE), pixels)
+        glTexSubImage2D(GLenum(GL_TEXTURE_2D), 0, 0, 0,
+                        GLsizei(rand_settings.w), GLsizei(rand_settings.h),
+                        GLenum(GL_RGBA), GLenum(GL_UNSIGNED_BYTE), pixels)
         glUniform1i(texLoc, 0)
         glActiveTexture(GLenum(GL_TEXTURE0))
         glBindTexture(GLenum(GL_TEXTURE_2D), tex)
@@ -257,7 +269,7 @@ class MondriantScreenSaverView : ScreenSaverView {
         updateSettingsAndVariancesFromConfigureSheet()
         let defaults = ScreenSaverDefaults.defaultsForModuleWithName(
             "com.michael-white.mondriant-screensaver") as! ScreenSaverDefaults
-        let s = NSKeyedArchiver.archivedDataWithRootObject(settings)
+        let s = NSKeyedArchiver.archivedDataWithRootObject(base_settings)
         defaults.setObject(s, forKey: "AntSettings")
         let v = NSKeyedArchiver.archivedDataWithRootObject(variances)
         defaults.setObject(v, forKey: "AntVariances")
@@ -270,22 +282,22 @@ class MondriantScreenSaverView : ScreenSaverView {
     }
     
     func updateSettingsAndVariancesFromConfigureSheet() {
-        settings.bg_color.r = UInt8(bg_colorWell.color.redComponent*255.0)
-        settings.bg_color.g = UInt8(bg_colorWell.color.greenComponent*255.0)
-        settings.bg_color.b = UInt8(bg_colorWell.color.blueComponent*255.0)
-        settings.bg_color.a = UInt8(bg_colorWell.color.alphaComponent*255.0)
+        base_settings.bg_color.r = UInt8(bg_colorWell.color.redComponent*255)
+        base_settings.bg_color.g = UInt8(bg_colorWell.color.greenComponent*255)
+        base_settings.bg_color.b = UInt8(bg_colorWell.color.blueComponent*255)
+        base_settings.bg_color.a = UInt8(bg_colorWell.color.alphaComponent*255)
 
-        settings.speed = speedSlider.integerValue
-        settings.padding = paddingSlider.integerValue
-        settings.split_dt_start = split_dt_startField.floatValue
-        settings.split_dt_factor = split_dt_factorField.floatValue
-        settings.split_dt_min = split_dt_minField.floatValue
-        settings.split_dt_max = split_dt_maxField.floatValue
-        settings.split_rate_start = split_rate_startField.floatValue
-        settings.split_rate_factor = split_rate_factorField.floatValue
-        settings.end_pause_time = end_pause_timeField.floatValue
-        settings.colored_path = (colored_pathButton.state == NSOnState)
-        settings.validate()
+        base_settings.speed = speedSlider.integerValue
+        base_settings.padding = paddingSlider.integerValue
+        base_settings.split_dt_start = split_dt_startField.floatValue
+        base_settings.split_dt_factor = split_dt_factorField.floatValue
+        base_settings.split_dt_min = split_dt_minField.floatValue
+        base_settings.split_dt_max = split_dt_maxField.floatValue
+        base_settings.split_rate_start = split_rate_startField.floatValue
+        base_settings.split_rate_factor = split_rate_factorField.floatValue
+        base_settings.end_pause_time = end_pause_timeField.floatValue
+        base_settings.colored_path = (colored_pathButton.state == NSOnState)
+        base_settings.validate()
 
         variances.split_dt_start = split_dt_startSlider.integerValue
         variances.split_dt_factor = split_dt_factorSlider.integerValue
@@ -301,13 +313,13 @@ class MondriantScreenSaverView : ScreenSaverView {
             "com.michael-white.mondriant-screensaver") as! ScreenSaverDefaults
         let s_option: AnyObject? = defaults.objectForKey("AntSettings")
         if (s_option == nil) {
-            settings = AntSettings()
+            base_settings = AntSettings()
         } else {
             let s = s_option! as! NSData
-            settings = NSKeyedUnarchiver.unarchiveObjectWithData(s) as!
+            base_settings = NSKeyedUnarchiver.unarchiveObjectWithData(s) as!
                 AntSettings
         }
-        settings.validate()
+        base_settings.validate()
         let v_option: AnyObject? = defaults.objectForKey("AntVariances")
         if (v_option == nil) {
             variances = AntVariances()
@@ -320,29 +332,34 @@ class MondriantScreenSaverView : ScreenSaverView {
     }
     
     func updateConfigureSheet() {
-        let r = CGFloat(settings.bg_color.r) / 255.0
-        let g = CGFloat(settings.bg_color.g) / 255.0
-        let b = CGFloat(settings.bg_color.b) / 255.0
-        let a = CGFloat(settings.bg_color.a) / 255.0
+        let r = CGFloat(base_settings.bg_color.r) / 255.0
+        let g = CGFloat(base_settings.bg_color.g) / 255.0
+        let b = CGFloat(base_settings.bg_color.b) / 255.0
+        let a = CGFloat(base_settings.bg_color.a) / 255.0
         let bg_color = NSColor(calibratedRed: r, green: g, blue: b, alpha: a)
         bg_colorWell.color = bg_color
-        speedSlider.integerValue = settings.speed
-        paddingSlider.integerValue = settings.padding
+        speedSlider.integerValue = base_settings.speed
+        paddingSlider.integerValue = base_settings.padding
         
         split_dt_startField.stringValue = roundedFloatString(
-            settings.split_dt_start)
+            base_settings.split_dt_start)
         split_dt_factorField.stringValue = roundedFloatString(
-            settings.split_dt_factor)
+            base_settings.split_dt_factor)
         split_dt_minField.stringValue = roundedFloatString(
-            settings.split_dt_min)
+            base_settings.split_dt_min)
         split_dt_maxField.stringValue = roundedFloatString(
-            settings.split_dt_max)
+            base_settings.split_dt_max)
         split_rate_startField.stringValue = roundedFloatString(
-            settings.split_rate_start)
+            base_settings.split_rate_start)
         split_rate_factorField.stringValue = roundedFloatString(
-            settings.split_rate_factor)
+            base_settings.split_rate_factor)
         end_pause_timeField.stringValue = roundedFloatString(
-            settings.end_pause_time)
+            base_settings.end_pause_time)
+        if (base_settings.colored_path) {
+            colored_pathButton.state = NSOnState
+        } else {
+            colored_pathButton.state = NSOffState
+        }
         
         split_dt_startSlider.integerValue = variances.split_dt_start
         split_dt_factorSlider.integerValue = variances.split_dt_factor
@@ -354,36 +371,38 @@ class MondriantScreenSaverView : ScreenSaverView {
     
     func randomizeAntSettings() {
         
-        let c2 = settings.split_dt_start
+        let c2 = base_settings.split_dt_start
         let v2 = c2 * Float(variances.split_dt_start) * 0.1
-        Ant.s.split_dt_start = sampleTriangularDistribution(c2, v2)
-        let c3 = settings.split_dt_factor
+        rand_settings.split_dt_start = sampleTriangularDistribution(c2, v2)
+        let c3 = base_settings.split_dt_factor
         let v3 = 2.0 * abs(c3 - 1.0) * Float(variances.split_dt_factor) * 0.1
-        Ant.s.split_dt_factor = sampleTriangularDistribution(c3, v3)
+        rand_settings.split_dt_factor = sampleTriangularDistribution(c3, v3)
         
-        let c4 = settings.split_dt_min
+        let c4 = base_settings.split_dt_min
         let v4 = c4 * Float(variances.split_dt_min) * 0.1
-        Ant.s.split_dt_min = sampleTriangularDistribution(c4, v4)
+        rand_settings.split_dt_min = sampleTriangularDistribution(c4, v4)
         
-        let c5 = clampMin(settings.split_dt_max - settings.split_dt_min, 0.0)
+        let c5 = clampMin(base_settings.split_dt_max -
+                          base_settings.split_dt_min, 0.0)
         let v5 = c5 * Float(variances.split_dt_max) * 0.1
-        Ant.s.split_dt_max = Ant.s.split_dt_min +
+        rand_settings.split_dt_max = rand_settings.split_dt_min +
             sampleTriangularDistribution(c5, v5)
         
-        let c6 = settings.split_rate_start
+        let c6 = base_settings.split_rate_start
         let v6 = c6 * Float(variances.split_rate_start) * 0.1
-        Ant.s.split_rate_start = sampleTriangularDistribution(c6, v6)
-        let c7 = settings.split_rate_factor
+        rand_settings.split_rate_start = sampleTriangularDistribution(c6, v6)
+        let c7 = base_settings.split_rate_factor
         let v7 = 2.0 * abs(c7 - 1.0) * Float(variances.split_rate_factor) * 0.1
-        Ant.s.split_rate_factor = sampleTriangularDistribution(c7, v7)
+        rand_settings.split_rate_factor = sampleTriangularDistribution(c7, v7)
 
-        Ant.s.color_start = Float(drand48()) * 6.28 / Ant.s.color_freq
+        rand_settings.color_start = Float(drand48()) * 6.28 /
+            rand_settings.color_freq
         
-        Ant.s.validate()
+        rand_settings.validate()
     }
     
     @IBAction func resetSettingsAndVariances(sender: NSButton) {
-        settings = AntSettings()
+        base_settings = AntSettings()
         variances = AntVariances()
         updateConfigureSheet()
     }
@@ -391,27 +410,31 @@ class MondriantScreenSaverView : ScreenSaverView {
     func outputPng(index: Int) {
         let dir = NSSearchPathDirectory.ApplicationSupportDirectory
         let mask = NSSearchPathDomainMask.UserDomainMask
-        if let searchPath = NSSearchPathForDirectoriesInDomains(dir, mask, true) {
+        if let searchPath = NSSearchPathForDirectoriesInDomains(dir,mask,true) {
             if (searchPath.count > 0) {
                 let asPath = searchPath[0] as! String
                 let dirPath = asPath + "/Mondriant"
                 if (!NSFileManager.defaultManager().fileExistsAtPath(dirPath)) {
                     let err = NSErrorPointer()
-                    if (!NSFileManager.defaultManager().createDirectoryAtPath(dirPath,
-                        withIntermediateDirectories: false, attributes: nil, error: err)) {
+                    if (!NSFileManager.defaultManager().createDirectoryAtPath(
+                            dirPath, withIntermediateDirectories: false,
+                            attributes: nil, error: err)) {
                         NSLog("Couldn't make directory: ", err.debugDescription)
                     }
                 }
                 let pngPath = dirPath + "/" + String(index) + ".png"
-                let w = settings.w
-                let h = settings.h
-                let provider = CGDataProviderCreateWithData(nil, pixels, w * h * 4, nil)
+                let w = rand_settings.w
+                let h = rand_settings.h
+                let provider = CGDataProviderCreateWithData(nil, pixels,
+                                                            w * h * 4, nil)
                 let colorSpace = CGColorSpaceCreateDeviceRGB()
                 let bitmapInfo = CGBitmapInfo(CGImageAlphaInfo.Last.rawValue)
                 let renderingIntent = kCGRenderingIntentDefault
-                let ref = CGImageCreate(w, h, 8, 32, 4 * w, colorSpace, bitmapInfo,
-                                        provider, nil, true, renderingIntent);
-                let image = NSImage(CGImage: ref, size: NSSize(width: w, height: h))
+                let ref = CGImageCreate(w, h, 8, 32, 4 * w, colorSpace,
+                                        bitmapInfo, provider, nil, true,
+                                        renderingIntent);
+                let image = NSImage(CGImage: ref, size: NSSize(width: w,
+                                                               height: h))
                 image.TIFFRepresentation!.writeToFile(pngPath, atomically: true)
             }
         }
@@ -564,17 +587,17 @@ class Ant {
     var split_rate: Float // rate at which random splits happen
     var num_steps: Float  // how many steps have happened
     var num_splits: Float // how many splits have happened
+    var s: AntSettings! = nil
     
-    static var s: AntSettings = AntSettings()
-    
-    init(x: Int, y: Int, dx: Int, dy: Int, time: Float) {
+    init(x: Int, y: Int, dx: Int, dy: Int, time: Float, s: AntSettings) {
         self.x = x
         self.y = y
         self.dx = dx
         self.dy = dy
+        self.s = s
         split_t = time
-        split_dt = Ant.s.split_dt_start
-        split_rate = Ant.s.split_rate_start
+        split_dt = s.split_dt_start
+        split_rate = s.split_rate_start
         num_steps = 0
         num_splits = 0
     }
@@ -589,25 +612,26 @@ class Ant {
         split_rate = splitFrom.split_rate
         num_steps = splitFrom.num_steps
         num_splits = splitFrom.num_splits
+        s = splitFrom.s
     }
     
     func in_bounds(#x: Int, y: Int) -> Bool {
-        return (0 <= x && x < Ant.s.w && 0 <= y && y < Ant.s.h)
+        return (0 <= x && x < s.w && 0 <= y && y < s.h)
     }
     
     func is_background(pixels: [PixelData], x: Int, y: Int) -> Bool {
         if (!in_bounds(x: x, y: y)) {
             return false
         }
-        let p = pixels[Ant.s.w * y + x]
-        return (p.r == Ant.s.bg_color.r && p.g == Ant.s.bg_color.g &&
-                p.b == Ant.s.bg_color.b && p.a == Ant.s.bg_color.a)
+        let p = pixels[s.w * y + x]
+        return (p.r == s.bg_color.r && p.g == s.bg_color.g &&
+                p.b == s.bg_color.b && p.a == s.bg_color.a)
     }
     
     func path_blocked(pixels: [PixelData]) -> Bool {
         var px = x
         var py = y
-        for i in 1...Ant.s.padding {
+        for i in 1...s.padding {
             px += dx
             py += dy
             if (!is_background(pixels, x: px, y: py)) {
@@ -622,10 +646,10 @@ class Ant {
         dx = -dy
         dy = tmp
         split_t = time + split_dt + 2.0 * expf(-0.1 * split_dt * split_dt)
-        if (split_dt >= Ant.s.split_dt_min && split_dt <= Ant.s.split_dt_max) {
-            split_dt *= Ant.s.split_dt_factor
+        if (split_dt >= s.split_dt_min && split_dt <= s.split_dt_max) {
+            split_dt *= s.split_dt_factor
         }
-        split_rate *= Ant.s.split_rate_factor
+        split_rate *= s.split_rate_factor
         num_splits += 1
         return Ant(splitFrom: self)
     }
@@ -653,8 +677,8 @@ class Ant {
         let r: UInt8;
         let g: UInt8;
         let b: UInt8;
-        if (Ant.s.colored_path) {
-            let t = Ant.s.color_freq * (num_steps + Ant.s.color_start)
+        if (s.colored_path) {
+            let t = s.color_freq * (num_steps + s.color_start)
             r = UInt8(sinf(t              ) * 127 + 128)
             g = UInt8(sinf(t + 3.14 * 0.67) * 127 + 128)
             b = UInt8(sinf(t + 3.14 * 1.33) * 127 + 128)
@@ -663,7 +687,7 @@ class Ant {
             g = 255;
             b = 255;
         }
-        pixels[Ant.s.w * y + x] = PixelData(r:r, g:g, b:b, a:255)
+        pixels[s.w * y + x] = PixelData(r:r, g:g, b:b, a:255)
     }
 }
 
