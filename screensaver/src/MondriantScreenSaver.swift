@@ -193,6 +193,10 @@ class MondriantScreenSaverView : ScreenSaverView {
                 }
             }
             time += 1.0
+            // check if ants are out of control
+            if (ants.count >= base_settings.w * base_settings.h) {
+                ants.removeAll(keepCapacity: true)
+            }
             // check if simulation is finished
             if (ants.count == 0 && !finished) {
                 time = 0.0
@@ -585,8 +589,9 @@ class Ant {
     var split_t: Float    // time at which the next split will be forced
     var split_dt: Float   // time between forced splits
     var split_rate: Float // rate at which random splits happen
-    var num_steps: Float  // how many steps have happened
-    var num_splits: Float // how many splits have happened
+    var new_steps: Int    // how many steps this ant has taken
+    var num_steps: Float  // how many steps have happened total
+    var num_splits: Float // how many splits have happened total
     var s: AntSettings! = nil
     
     init(x: Int, y: Int, dx: Int, dy: Int, time: Float, s: AntSettings) {
@@ -598,6 +603,7 @@ class Ant {
         split_t = time
         split_dt = s.split_dt_start
         split_rate = s.split_rate_start
+        new_steps = 0
         num_steps = 0
         num_splits = 0
     }
@@ -610,6 +616,7 @@ class Ant {
         split_t = splitFrom.split_t
         split_dt = splitFrom.split_dt
         split_rate = splitFrom.split_rate
+        new_steps = 0
         num_steps = splitFrom.num_steps
         num_splits = splitFrom.num_splits
         s = splitFrom.s
@@ -641,24 +648,44 @@ class Ant {
         return false
     }
     
-    func split(time: Float) -> Ant {
+    func split(time: Float, pixels: [PixelData]) -> (Bool, AntStepResult) {
+        // the bool is whether this split results in moving this ant
         let tmp = dx
         dx = -dy
         dy = tmp
+        if (path_blocked(pixels)) {
+            dx = -dx
+            dy = -dy
+            if (path_blocked(pixels)) {
+                return (false, AntStepResult.Halt)
+            } else {
+                return (true, AntStepResult.Move)
+            }
+        }
+        dx = -dx
+        dy = -dy
+        if (path_blocked(pixels)) {
+            dx = -dx
+            dy = -dy
+            return (true, AntStepResult.Move)
+        }
         split_t = time + split_dt + 2.0 * expf(-0.1 * split_dt * split_dt)
         if (split_dt >= s.split_dt_min && split_dt <= s.split_dt_max) {
             split_dt *= s.split_dt_factor
         }
         split_rate *= s.split_rate_factor
         num_splits += 1
-        return Ant(splitFrom: self)
+        return (false, AntStepResult.Split(Ant(splitFrom: self)))
     }
     
     func step(time: Float, pixels: [PixelData]) -> AntStepResult {
-        if (time > split_t ||
-            atanf(split_rate * 0.25) * 0.6366 > Float(drand48())) {
-            return AntStepResult.Split(split(time))
+        if (new_steps > 1 && (time > split_t || atanf(split_rate*0.25)*0.636 > Float(drand48()))) {
+            let (move, s) = split(time, pixels: pixels)
+            if (!move) {
+                return s
+            }
         }
+        new_steps += 1
         num_steps += 1
         x += dx
         y += dy
